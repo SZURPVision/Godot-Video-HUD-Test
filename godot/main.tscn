@@ -1,0 +1,124 @@
+[gd_scene load_steps=3 format=3 uid="uid://re8k5wdt3k7n"]
+
+[ext_resource type="Script" uid="uid://bscs3rcgq0l1a" path="res://main.gd" id="1_ig7tw"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_ig7tw"]
+
+[node name="Main" type="Node2D"]
+script = ExtResource("1_ig7tw")
+
+[node name="LiveTextureRect" type="TextureRect" parent="."]
+
+[node name="HUD_Layer" type="CanvasLayer" parent="."]
+
+[node name="HUD" type="Control" parent="HUD_Layer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="InfoPanel" type="Panel" parent="HUD_Layer/HUD"]
+self_modulate = Color(1, 1, 1, 0.5019608)
+layout_mode = 0
+offset_right = 400.0
+offset_bottom = 600.0
+
+[node name="Info_VBoxContainer" type="VBoxContainer" parent="HUD_Layer/HUD/InfoPanel"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.05
+anchor_top = 0.05
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="FPS_HBoxContainer" type="HBoxContainer" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer"]
+layout_mode = 2
+
+[node name="FPS_Label" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/FPS_HBoxContainer"]
+layout_mode = 2
+text = "FPS:"
+
+[node name="FPS_Value" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/FPS_HBoxContainer"]
+layout_mode = 2
+
+[node name="Time_HBoxContainer" type="HBoxContainer" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer"]
+layout_mode = 2
+
+[node name="Time_Label" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/Time_HBoxContainer"]
+layout_mode = 2
+text = "当前时间:"
+
+[node name="Time_Value" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/Time_HBoxContainer"]
+layout_mode = 2
+
+[node name="InputLatency_HBoxContainer" type="HBoxContainer" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer"]
+layout_mode = 2
+
+[node name="InputLatency_Label" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/InputLatency_HBoxContainer"]
+layout_mode = 2
+text = "输入延迟(ms):"
+
+[node name="InputLatency_Value" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/InputLatency_HBoxContainer"]
+layout_mode = 2
+
+[node name="Pressed_HBoxContainer" type="HBoxContainer" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer"]
+layout_mode = 2
+
+[node name="Pressed_Label" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/Pressed_HBoxContainer"]
+layout_mode = 2
+text = "当前输入:"
+
+[node name="Pressed_Value" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/Pressed_HBoxContainer"]
+layout_mode = 2
+
+[node name="VideoLatency_HBoxContainer" type="HBoxContainer" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer"]
+layout_mode = 2
+
+[node name="VideoLatency_Label" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/VideoLatency_HBoxContainer"]
+layout_mode = 2
+text = "视频流延迟(ms):"
+
+[node name="VideoLatency_Value" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/VideoLatency_HBoxContainer"]
+layout_mode = 2
+
+[node name="UDP_Latency_HBoxContainer" type="HBoxContainer" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer"]
+layout_mode = 2
+
+[node name="UDP_Latency_Label" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/UDP_Latency_HBoxContainer"]
+layout_mode = 2
+text = "UDP延迟(ms):"
+
+[node name="UDP_Latency_Value" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/UDP_Latency_HBoxContainer"]
+layout_mode = 2
+
+[node name="ConnectionStatus" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer"]
+layout_mode = 2
+
+[node name="AR_Container" type="SubViewportContainer" parent="."]
+offset_right = 1920.0
+offset_bottom = 1080.0
+size_flags_horizontal = 4
+size_flags_vertical = 4
+
+[node name="SubViewport" type="SubViewport" parent="AR_Container"]
+transparent_bg = true
+handle_input_locally = false
+size = Vector2i(1920, 1080)
+render_target_update_mode = 4
+
+[node name="AR_World" type="Node3D" parent="AR_Container/SubViewport"]
+
+[node name="Block" type="MeshInstance3D" parent="AR_Container/SubViewport/AR_World"]
+mesh = SubResource("BoxMesh_ig7tw")
+skeleton = NodePath("../../..")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="AR_Container/SubViewport/AR_World"]
+transform = Transform3D(1, 0, 0, 0, 0.5288384, 0.8487226, 0, -0.8487226, 0.5288384, 0, 0, 0)
+
+[node name="Camera3D" type="Camera3D" parent="AR_Container/SubViewport/AR_World"]
+transform = Transform3D(0.85348713, -0.100183085, 0.5113933, 6.6739774e-09, 0.98134637, 0.19224794, -0.52111393, -0.16408117, 0.83756655, 2.5171003, 1.3209045, 3.7233217)
+current = true
