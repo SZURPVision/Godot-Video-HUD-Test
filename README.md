@@ -1,6 +1,8 @@
 # GODOT视频流+HUD+3D测试
-## 测试方法:
-先运行sender.py,调好帧率(默认165Hz)
+## 测试流程:
+**复制无人机内录视频到`sender.py`同目录下,并命名为`test.avi`**
+
+运行sender.py,调好帧率(默认165Hz)
 ```shell
 python3 sender.py
 ```
