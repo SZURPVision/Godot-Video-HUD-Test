@@ -2,7 +2,7 @@
 ## 测试流程:
 **复制无人机内录视频到`sender.py`同目录下,并命名为`test.avi`**
 
-运行sender.py,调好帧率(默认165Hz)
+运行sender.py,该脚本会读取显示器刷新率
 ```shell
 python3 sender.py
 ```

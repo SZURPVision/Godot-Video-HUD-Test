@@ -2,7 +2,7 @@ extends Node2D
 
 # --- Configuration ---
 const UDP_PORT = 9999
-const HEADER_SIZE = 11 # 3 bytes (Info) + 8 bytes (Double Timestamp)
+const HEADER_SIZE = 11 # [ID, Chunk, Total, Time(8B)]
 
 # --- Log Files ---
 const LOG_PATH = "user://log_file.csv"
@@ -22,8 +22,6 @@ const LOG_PATH = "user://log_file.csv"
 @onready var input_latency_val: Label = $HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/InputLatency_HBoxContainer/InputLatency_Value
 @onready var pressed_val: Label = $HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/Pressed_HBoxContainer/Pressed_Value
 @onready var connection_status: Label = $HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/ConnectionStatus
-
-# Latency Labels
 @onready var video_latency_val: Label = $HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/VideoLatency_HBoxContainer/VideoLatency_Value
 @onready var udp_latency_val: Label = $HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/UDP_Latency_HBoxContainer/UDP_Latency_Value
 
@@ -32,8 +30,8 @@ var udp: PacketPeerUDP
 var thread: Thread
 var mutex: Mutex
 var exit_thread: bool = false
-var texture_queue: Array = []
 var frame_buffer: Dictionary = {}
+var ready_image_queue: Array = [] # Stores decoded Images (CPU data)
 
 # --- 3D Control ---
 var camera_sensitivity: float = 0.2
@@ -42,7 +40,6 @@ var mouse_captured: bool = false
 # --- Data Logging ---
 var log_file: FileAccess
 var log_timer: float = 0.0
-
 var current_video_latency: float = 0.0
 var current_udp_latency: float = 0.0
 var current_input_latency: float = 0.0
@@ -52,23 +49,24 @@ func _ready() -> void:
 	# 1. Setup UDP
 	udp = PacketPeerUDP.new()
 	if udp.bind(UDP_PORT) != OK:
-		connection_status.text = "UDP绑定错误"
+		connection_status.text = "UDP Bind Error"
 		connection_status.modulate = Color.RED
 	else:
-		connection_status.text = "等待连接..."
+		connection_status.text = "Waiting..."
 		connection_status.modulate = Color.YELLOW
+	
+	# Increase Buffer if possible (helps with 165Hz bursts)
+	# udp.set_dest_address("127.0.0.1", 9999) 
 	
 	mutex = Mutex.new()
 	thread = Thread.new()
 	thread.start(_udp_thread_function)
 
-	_setup_wireframe_visuals()
-
-	# 2. Setup Video Log (FPS, UDP Latency, Video Proc Latency)
+	# 2. Setup Logging
 	log_file = FileAccess.open(LOG_PATH, FileAccess.WRITE)
 	if log_file:
 		log_file.store_line("Timestamp,FPS,UDPLatency_MS,VideoProcLatency_MS,InputLatency_MS")
-		print("Log: ", ProjectSettings.globalize_path(LOG_PATH))
+		print("Log path: ", ProjectSettings.globalize_path(LOG_PATH))
 
 	_toggle_mouse_capture(true)
 
@@ -92,27 +90,36 @@ func _input(event: InputEvent) -> void:
 	current_input_latency = Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
 
 func _process(delta: float) -> void:
+	# --- UI Updates ---
 	time_val.text = Time.get_time_string_from_system()
 	fps_val.text = str(Engine.get_frames_per_second())
 	
+	# --- Texture Update (Main Thread) ---
 	mutex.lock()
-	if not texture_queue.is_empty():
-		var frame_data = texture_queue.pop_back() 
-		texture_queue.clear() 
+	if not ready_image_queue.is_empty():
+		# Get the MOST RECENT frame (skips lags)
+		var frame_data = ready_image_queue.pop_back()
+		ready_image_queue.clear() 
+		mutex.unlock()
 		
-		video_rect.texture = frame_data["texture"]
+		# High Performance Update
+		if video_rect.texture:
+			video_rect.texture.update(frame_data["image"])
+		else:
+			video_rect.texture = ImageTexture.create_from_image(frame_data["image"])
 		
+		# Update Stats
 		current_udp_latency = frame_data["udp_latency"]
 		var render_time = Time.get_unix_time_from_system() * 1000.0
 		current_video_latency = render_time - frame_data["arrival_time"]
 		
-		if udp_latency_val:
-			udp_latency_val.text = "%.1f ms" % current_udp_latency
+		udp_latency_val.text = "%.1f ms" % current_udp_latency
 		video_latency_val.text = "%.1f ms" % current_video_latency
 		
-		connection_status.text = "已连接"
+		connection_status.text = "Connected"
 		connection_status.modulate = Color.GREEN
-	mutex.unlock()
+	else:
+		mutex.unlock()
 
 	input_latency_val.text = "%.2f ms" % current_input_latency
 	var keys_text = ", ".join(active_keys.keys())
@@ -123,43 +130,43 @@ func _process(delta: float) -> void:
 		block_mesh.rotate_y(0.5 * delta)
 		block_mesh.rotate_x(0.2 * delta)
 
-	# Log Data
+	# --- Logging ---
 	log_timer += delta
 	if log_timer >= 0.5:
-		_log_data_to_files(keys_text)
+		_log_data_to_files()
 		log_timer = 0.0
 
 func _udp_thread_function() -> void:
 	while not exit_thread:
-		if udp.get_available_packet_count() > 0:
+		# 1. BURST READ: Drain the entire socket buffer
+		var packet_count = udp.get_available_packet_count()
+		if packet_count == 0:
+			OS.delay_usec(100) # Sleep 0.1ms
+			continue
+			
+		for i in range(packet_count):
 			var pkt = udp.get_packet()
 			if pkt.size() <= HEADER_SIZE: continue
 			
 			var frame_id = pkt[0]
 			var chunk_idx = pkt[1]
 			var total_chunks = pkt[2]
-			var timestamp_bytes = pkt.slice(3, 11)
-			var sent_time = timestamp_bytes.decode_double(0)
+			var sent_time = pkt.slice(3, 11).decode_double(0)
 			var payload = pkt.slice(11)
 			var arrival_time = Time.get_unix_time_from_system() * 1000.0
 			
-			# --- CRITICAL SECTION START ---
 			mutex.lock()
 			
-			# 1. Manage Frame Buffer (Same as before)
+			# --- Frame Assembly Logic ---
 			var is_new_session = false
 			if frame_buffer.has(frame_id):
-				var old_ts = frame_buffer[frame_id]["sent_time"]
-				if abs(sent_time - old_ts) > 0.1:
+				if abs(sent_time - frame_buffer[frame_id]["sent_time"]) > 0.1:
 					is_new_session = true
 			
 			if not frame_buffer.has(frame_id) or is_new_session:
 				frame_buffer[frame_id] = {
-					"chunks": {}, 
-					"count": 0, 
-					"total": total_chunks, 
-					"sent_time": sent_time,
-					"arrival_time": arrival_time
+					"chunks": {}, "count": 0, "total": total_chunks, 
+					"sent_time": sent_time, "arrival_time": arrival_time
 				}
 			
 			var entry = frame_buffer[frame_id]
@@ -167,34 +174,47 @@ func _udp_thread_function() -> void:
 				entry["chunks"][chunk_idx] = payload
 				entry["count"] += 1
 			
-			# 2. Check for Completion
-			var ready_frame_data = null # Store data to process outside lock
-			var ready_frame_info = {}
-			
+			# --- Check Completion ---
 			if entry["count"] >= entry["total"]:
-				# Frame is complete! Extract data NOW while locked
-				ready_frame_data = _assemble_frame_bytes(entry)
-				ready_frame_info = {
-					"sent_time": entry["sent_time"],
+				var final_data = _assemble_frame_bytes(entry)
+				var info = {
+					"sent_time": entry["sent_time"], 
 					"arrival_time": entry["arrival_time"]
 				}
-				frame_buffer.erase(frame_id) # Clean up immediately
-			
-			# Cleanup old frames
-			if frame_buffer.size() > 5:
-				frame_buffer.erase(frame_buffer.keys()[0])
+				frame_buffer.erase(frame_id)
+				mutex.unlock() 
 				
-			mutex.unlock() 
-			# --- CRITICAL SECTION END ---
-			
-			# 3. Heavy Processing (OUTSIDE LOCK)
-			if ready_frame_data:
-				_process_and_queue_image(ready_frame_data, ready_frame_info)
-				
-		else:
-			OS.delay_msec(1)
-			
-# Helper to assemble bytes (Must be called inside lock or with local data)
+				# 2. FIX: PASS MUTEX & QUEUE AS ARGUMENTS
+				# This prevents "null value" errors if the Node dies
+				WorkerThreadPool.add_task(
+					_decode_task.bind(final_data, info, mutex, ready_image_queue)
+				)
+			else:
+				mutex.unlock()
+		
+		# Cleanup Logic (Safe cleanup of old frames)
+		mutex.lock()
+		if frame_buffer.size() > 5:
+			frame_buffer.erase(frame_buffer.keys()[0])
+		mutex.unlock()
+
+# --- Static-like Task (Runs on background thread) ---
+func _decode_task(data: PackedByteArray, info: Dictionary, mutex_ref: Mutex, queue_ref: Array):
+	if data.size() < 2: return
+	
+	var img = Image.new()
+	var err = img.load_jpg_from_buffer(data)
+	
+	if err == OK:
+		# Use the PASSED references, never "self"
+		mutex_ref.lock()
+		queue_ref.append({
+			"image": img, 
+			"udp_latency": info["arrival_time"] - info["sent_time"],
+			"arrival_time": info["arrival_time"]
+		})
+		mutex_ref.unlock()
+
 func _assemble_frame_bytes(entry: Dictionary) -> PackedByteArray:
 	var full_data = PackedByteArray()
 	for i in range(entry["total"]):
@@ -202,122 +222,21 @@ func _assemble_frame_bytes(entry: Dictionary) -> PackedByteArray:
 			full_data.append_array(entry["chunks"][i])
 	return full_data
 
-# Helper to decode and queue (called OUTSIDE lock)
-func _process_and_queue_image(data: PackedByteArray, info: Dictionary):
-	# Basic JPEG validation
-	if data.size() < 2 or data[0] != 0xFF or data[1] != 0xD8:
-		return
-
-	var img = Image.new()
-	# EXPENSIVE CPU OPERATION (Now safe to run in parallel)
-	var err = img.load_jpg_from_buffer(data)
-	
-	if err == OK:
-		# EXPENSIVE GPU OPERATION (Safe in Godot 4, but keep outside lock)
-		var tex = ImageTexture.create_from_image(img)
-		
-		var udp_lat = info["arrival_time"] - info["sent_time"]
-		
-		# --- BRIEF LOCK TO PUSH TO QUEUE ---
-		mutex.lock()
-		texture_queue.append({
-			"texture": tex, 
-			"udp_latency": udp_lat, 
-			"arrival_time": info["arrival_time"]
-		})
-		mutex.unlock()
-
-func _decode_and_queue(fid: int):
-	if not frame_buffer.has(fid): return
-
-	var entry = frame_buffer[fid]
-	var full_data = PackedByteArray()
-	
-	var is_valid = true
-	for i in range(entry["total"]):
-		if entry["chunks"].has(i):
-			full_data.append_array(entry["chunks"][i])
-		else:
-			is_valid = false
-			break
-			
-	if not is_valid:
-		frame_buffer.erase(fid)
-		return
-
-	if full_data.size() < 2 or full_data[0] != 0xFF or full_data[1] != 0xD8:
-		frame_buffer.erase(fid)
-		return
-
-	var img = Image.new()
-	var err = img.load_jpg_from_buffer(full_data)
-	
-	if err == OK:
-		var tex = ImageTexture.create_from_image(img)
-		
-		# Network Latency = Arrival - Sent
-		var udp_lat = entry["arrival_time"] - entry["sent_time"]
-		
-		texture_queue.append({
-			"texture": tex, 
-			"udp_latency": udp_lat, 
-			"arrival_time": entry["arrival_time"]
-		})
-	
-	frame_buffer.erase(fid)
-
-func _setup_wireframe_visuals():
-	ar_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ar_viewport.transparent_bg = true
-	
-	if block_mesh:
-		var m = ArrayMesh.new()
-		var verts = PackedVector3Array([
-			Vector3(-1,-1,-1), Vector3(1,-1,-1), Vector3(1,1,-1), Vector3(-1,1,-1),
-			Vector3(-1,-1,1), Vector3(1,-1,1), Vector3(1,1,1), Vector3(-1,1,1)
-		])
-		var indices = PackedInt32Array([
-			0,1, 1,2, 2,3, 3,0, 
-			4,5, 5,6, 6,7, 7,4, 
-			0,4, 1,5, 2,6, 3,7 
-		])
-		
-		var arrays = []
-		arrays.resize(Mesh.ARRAY_MAX)
-		arrays[Mesh.ARRAY_VERTEX] = verts
-		arrays[Mesh.ARRAY_INDEX] = indices
-		
-		m.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
-		
-		var mat = StandardMaterial3D.new()
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mat.albedo_color = Color.CYAN
-		mat.vertex_color_use_as_albedo = true
-		
-		block_mesh.mesh = m
-		block_mesh.material_override = mat
-		block_mesh.scale = Vector3(0.5, 0.5, 0.5)
-
 func _toggle_mouse_capture(capture: bool):
 	mouse_captured = capture
-	if capture:
-		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
-	else:
-		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED if capture else Input.MOUSE_MODE_VISIBLE)
 
-func _log_data_to_files(keys_str: String):
-	var timestamp = Time.get_unix_time_from_system()
-	
-	# 1. Log Video Stats
+func _log_data_to_files():
 	if log_file:
-		var line_video = "%s,%s,%.2f,%.2f,%.2f" % [
+		var timestamp = Time.get_unix_time_from_system()
+		var line = "%s,%s,%.2f,%.2f,%.2f" % [
 			timestamp,
 			fps_val.text,
 			current_udp_latency,
 			current_video_latency,
 			current_input_latency
 		]
-		log_file.store_line(line_video)
+		log_file.store_line(line)
 
 func _exit_tree() -> void:
 	exit_thread = true

@@ -1,8 +1,18 @@
-[gd_scene load_steps=3 format=3 uid="uid://re8k5wdt3k7n"]
+[gd_scene load_steps=5 format=3 uid="uid://re8k5wdt3k7n"]
 
 [ext_resource type="Script" uid="uid://bscs3rcgq0l1a" path="res://main.gd" id="1_ig7tw"]
+[ext_resource type="Shader" uid="uid://c7bkc5hmqf643" path="res://wireframe.gdshader" id="2_0xm2m"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_h2yge"]
+render_priority = 0
+shader = ExtResource("2_0xm2m")
+shader_parameter/albedo = Color(1, 1, 1, 1)
+shader_parameter/wire_color = Color(0, 0, 0, 1)
+shader_parameter/wire_width = 5.0
+shader_parameter/wire_smoothness = 0.01
 
 [sub_resource type="BoxMesh" id="BoxMesh_ig7tw"]
+material = SubResource("ShaderMaterial_h2yge")
 
 [node name="Main" type="Node2D"]
 script = ExtResource("1_ig7tw")

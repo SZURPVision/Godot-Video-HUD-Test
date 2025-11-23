@@ -1,3 +1,7 @@
 .vscode
 *.avi
 *.ods
+*.csv
+__pycache__
+build
+.~*
