@@ -7,7 +7,6 @@
 render_priority = 0
 shader = ExtResource("2_0xm2m")
 shader_parameter/albedo = Color(1, 1, 1, 1)
-shader_parameter/wire_color = Color(0, 0, 0, 1)
 shader_parameter/wire_width = 5.0
 shader_parameter/wire_smoothness = 0.01
 
@@ -85,16 +84,6 @@ text = "当前输入:"
 [node name="Pressed_Value" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/Pressed_HBoxContainer"]
 layout_mode = 2
 
-[node name="VideoLatency_HBoxContainer" type="HBoxContainer" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer"]
-layout_mode = 2
-
-[node name="VideoLatency_Label" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/VideoLatency_HBoxContainer"]
-layout_mode = 2
-text = "视频流延迟(ms):"
-
-[node name="VideoLatency_Value" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/VideoLatency_HBoxContainer"]
-layout_mode = 2
-
 [node name="UDP_Latency_HBoxContainer" type="HBoxContainer" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer"]
 layout_mode = 2
 
@@ -103,6 +92,36 @@ layout_mode = 2
 text = "UDP延迟(ms):"
 
 [node name="UDP_Latency_Value" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/UDP_Latency_HBoxContainer"]
+layout_mode = 2
+
+[node name="Decoding_Latency_HBoxContainer" type="HBoxContainer" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer"]
+layout_mode = 2
+
+[node name="Decoding_Latency_Label" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/Decoding_Latency_HBoxContainer"]
+layout_mode = 2
+text = "解码延迟(ms):"
+
+[node name="Decoding_Latency_Value" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/Decoding_Latency_HBoxContainer"]
+layout_mode = 2
+
+[node name="Rendering_Latency_HBoxContainer" type="HBoxContainer" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer"]
+layout_mode = 2
+
+[node name="Rendering_Latency_Label" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/Rendering_Latency_HBoxContainer"]
+layout_mode = 2
+text = "渲染延迟(ms):"
+
+[node name="Rendering_Latency_Value" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/Rendering_Latency_HBoxContainer"]
+layout_mode = 2
+
+[node name="VideoLatency_HBoxContainer" type="HBoxContainer" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer"]
+layout_mode = 2
+
+[node name="VideoLatency_Label" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/VideoLatency_HBoxContainer"]
+layout_mode = 2
+text = "视频流延迟(ms):"
+
+[node name="VideoLatency_Value" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer/VideoLatency_HBoxContainer"]
 layout_mode = 2
 
 [node name="ConnectionStatus" type="Label" parent="HUD_Layer/HUD/InfoPanel/Info_VBoxContainer"]

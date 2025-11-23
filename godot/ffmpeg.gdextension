@@ -1,0 +1,16 @@
+[configuration]
+
+entry_symbol = "ffmpeg_stream_library_init"
+compatibility_minimum = "4.2"
+
+[libraries]
+
+; Linux
+linux.editor.x86_64 = "res://bin/libgdffmpegstream.linux.editor.x86_64.so"
+linux.debug.x86_64 = "res://bin/libgdffmpegstream.linux.template_debug.x86_64.so"
+linux.release.x86_64 = "res://bin/libgdffmpegstream.linux.template_release.x86_64.so"
+
+; Windows
+windows.editor.x86_64 = "res://bin/libgdffmpegstream.windows.editor.x86_64.dll"
+windows.debug.x86_64 = "res://bin/libgdffmpegstream.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "res://bin/libgdffmpegstream.windows.template_release.x86_64.dll"
