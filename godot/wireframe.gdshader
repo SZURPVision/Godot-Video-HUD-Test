@@ -41,5 +41,5 @@ void fragment() {
 	// 2. Use 'wires' to control Alpha. 
 	// 'wires' is 1.0 at the center of the face, and 0.0 at the edge.
 	// We want 0.0 alpha at the center, and 1.0 alpha at the edge.
-	ALPHA = ( 1.0 - wires ) * 0.5;
+	ALPHA = ( 1.0 - wires ) * 0.2;
 }

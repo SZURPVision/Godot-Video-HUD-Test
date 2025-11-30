@@ -5,6 +5,8 @@
 #include <cstdio>
 #include <chrono>
 #include <iomanip>
+#include <thread> // For sleep_for
+#include <atomic> // For thread safety
 
 // OpenCV Includes
 #include <opencv2/opencv.hpp>
@@ -22,19 +24,58 @@ const std::string VIDEO_FILE = "test.avi";
 std::string UDP_IP = "127.0.0.1";
 const int VIDEO_PORT = 9999;
 const int DATA_PORT = 9998;
-const int TARGET_W = 1920;
-const int TARGET_H = 1080;
+const int PING_PORT = 9997;
+const int TARGET_W = 1280;
+const int TARGET_H = 720;
 
 // Set to TRUE to burn timestamp into video. 
-// Set to FALSE for MAXIMUM PERFORMANCE (Zero-Copy Mode).
 const bool DRAW_TEXT = true; 
 
-// Set this artificially high to allow FFmpeg to process as fast as possible
-const int MAX_FPS_CAP = 1000; 
-const size_t MAX_RAM_FRAMES = 600;
+void ping_listener() {
+    int sockfd;
+    struct sockaddr_in servaddr, cliaddr;
+    
+    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("Ping socket creation failed");
+        return;
+    }
+    
+    memset(&servaddr, 0, sizeof(servaddr));
+    memset(&cliaddr, 0, sizeof(cliaddr));
+    
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_addr.s_addr = INADDR_ANY;
+    servaddr.sin_port = htons(PING_PORT);
+    
+    if (bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
+        perror("Ping bind failed");
+        return;
+    }
+    
+    std::cout << "RTT Service: Listening for Pings on port " << PING_PORT << std::endl;
+    
+    char buffer[1024];
+    socklen_t len = sizeof(cliaddr);
+    
+    while (true) {
+        int n = recvfrom(sockfd, (char *)buffer, 1024, MSG_WAITALL, (struct sockaddr *) &cliaddr, &len);
+        if (n > 0) {
+            // Echo back immediately (Ping-Pong)
+            sendto(sockfd, (const char *)buffer, n, MSG_CONFIRM, (const struct sockaddr *) &cliaddr, len);
+        }
+    }
+}
 
-int main(int argc,const char **argv) {
-    if(argc>1 && argv[1]) UDP_IP = argv[2];
+int main(int argc, const char **argv) {
+    // Argument Parsing: ./sender [IP] [FPS]
+    if (argc > 1) UDP_IP = argv[1];
+    int target_fps = 60;
+    if (argc > 2) target_fps = std::stoi(argv[2]);
+
+    // Start Ping Listener Thread
+    std::thread ping_thread(ping_listener);
+    ping_thread.detach();
+
     // 0. Silence OpenCV logs
     cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_SILENT);
 
@@ -51,41 +92,14 @@ int main(int argc,const char **argv) {
     servaddr.sin_port = htons(DATA_PORT);
     servaddr.sin_addr.s_addr = inet_addr(UDP_IP.c_str());
 
-    // 2. Pre-load Video to RAM
-    std::cout << "Pre-loading video frames into RAM (Max " << MAX_RAM_FRAMES << ")..." << std::endl;
+    // 2. Open Video Source
     cv::VideoCapture cap(VIDEO_FILE);
     if (!cap.isOpened()) {
         std::cerr << "Error: Input file '" << VIDEO_FILE << "' not found." << std::endl;
         return -1;
     }
 
-    std::vector<cv::Mat> frame_cache;
-    cv::Mat temp_frame, resized_frame;
-    
-    frame_cache.reserve(MAX_RAM_FRAMES);
-
-    while (frame_cache.size() < MAX_RAM_FRAMES) {
-        if (!cap.read(temp_frame)) break;
-        
-        if (temp_frame.cols != TARGET_W || temp_frame.rows != TARGET_H) {
-            cv::resize(temp_frame, resized_frame, cv::Size(TARGET_W, TARGET_H));
-            frame_cache.push_back(resized_frame.clone());
-        } else {
-            frame_cache.push_back(temp_frame.clone());
-        }
-    }
-    cap.release();
-
-    if (frame_cache.empty()) {
-        std::cerr << "Error: No frames loaded." << std::endl;
-        return -1;
-    }
-    std::cout << "Loaded " << frame_cache.size() << " frames into RAM." << std::endl;
-
     // 3. Setup FFmpeg Pipe
-    // FIX: Added '-g 15' and '-forced-idr 1'
-    // This forces a keyframe (fresh image) every 15 frames.
-    // Without this, the receiver might wait seconds for the first image.
     char ffmpeg_cmd[2048];
     snprintf(ffmpeg_cmd, sizeof(ffmpeg_cmd),
         "ffmpeg -y -f rawvideo -vcodec rawvideo -pix_fmt bgr24 -s %dx%d -r %d -i - "
@@ -93,7 +107,7 @@ int main(int argc,const char **argv) {
         "-rc constqp -qp 28 -pix_fmt yuv420p "
         "-g 15 -forced-idr 1 "
         "-f mpegts udp://%s:%d?pkt_size=1316",
-        TARGET_W, TARGET_H, MAX_FPS_CAP, UDP_IP.c_str(), VIDEO_PORT
+        TARGET_W, TARGET_H, target_fps, UDP_IP.c_str(), VIDEO_PORT
     );
 
     FILE* pipe = popen(ffmpeg_cmd, "w");
@@ -106,14 +120,12 @@ int main(int argc,const char **argv) {
     char pipe_buffer[4 * 1024 * 1024];
     setvbuf(pipe, pipe_buffer, _IOFBF, sizeof(pipe_buffer));
 
-    std::cout << "Streaming Video -> udp://" << UDP_IP << ":" << VIDEO_PORT << " (NVIDIA NVENC + Keyframes)" << std::endl;
-    std::cout << "Mode: " << (DRAW_TEXT ? "Text Overlay (Copy)" : "Zero-Copy (Max Speed)") << std::endl;
+    std::cout << "Streaming Video -> udp://" << UDP_IP << ":" << VIDEO_PORT 
+              << " (FPS: " << target_fps << ")" << std::endl;
 
     long long frame_count = 0;
-    size_t cache_idx = 0;
-    size_t cache_size = frame_cache.size();
     
-    cv::Mat working_frame;
+    cv::Mat raw_frame, resized_frame, working_frame;
     char ts_readable[64];
     char udp_msg[64];
     
@@ -130,8 +142,25 @@ int main(int argc,const char **argv) {
     size_t frame_data_size = TARGET_W * TARGET_H * 3;
 
     auto start_time = std::chrono::high_resolution_clock::now();
+    auto next_frame_time = start_time;
+    std::chrono::microseconds frame_duration(1000000 / target_fps);
 
     while (true) {
+        // --- Frame Reading ---
+        if (!cap.read(raw_frame)) {
+            // End of file, loop back
+            cap.set(cv::CAP_PROP_POS_FRAMES, 0);
+            continue;
+        }
+
+        // Resize if needed
+        if (raw_frame.cols != TARGET_W || raw_frame.rows != TARGET_H) {
+            cv::resize(raw_frame, resized_frame, cv::Size(TARGET_W, TARGET_H));
+            working_frame = resized_frame; // Use resized
+        } else {
+            working_frame = raw_frame; // Use raw directly (careful with modification if not cloning)
+        }
+
         // --- TIMING ---
         auto now = std::chrono::system_clock::now();
         auto duration = now.time_since_epoch();
@@ -142,13 +171,8 @@ int main(int argc,const char **argv) {
         sendto(sockfd, (const char *)udp_msg, msg_len, 
                MSG_CONFIRM, (const struct sockaddr *) &servaddr, sizeof(servaddr));
 
-        // --- VIDEO PIPELINE ---
-        uchar* data_ptr = nullptr;
-
+        // --- DRAW TEXT ---
         if (DRAW_TEXT) {
-            // SLOW PATH: Copy memory, draw text
-            frame_cache[cache_idx].copyTo(working_frame);
-            
             std::time_t timer = std::chrono::system_clock::to_time_t(now);
             std::tm bt = *std::localtime(&timer);
             auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration) % 1000;
@@ -158,28 +182,25 @@ int main(int argc,const char **argv) {
             // Draw
             cv::putText(working_frame, ts_readable, cv::Point(text_x + 3, text_y + 3), fontFace, fontScale, cv::Scalar(0, 0, 0), thickness);
             cv::putText(working_frame, ts_readable, cv::Point(text_x, text_y), fontFace, fontScale, cv::Scalar(255, 255, 255), thickness);
-            
-            data_ptr = working_frame.data;
-        } else {
-            // FAST PATH: Zero-Copy
-            data_ptr = frame_cache[cache_idx].data;
         }
 
         // --- PIPE WRITE ---
-        size_t written = fwrite(data_ptr, 1, frame_data_size, pipe);
+        size_t written = fwrite(working_frame.data, 1, frame_data_size, pipe);
         if (written == 0) break;
 
-        // Loop Logic
-        cache_idx++;
-        if (cache_idx >= cache_size) cache_idx = 0;
         frame_count++;
+
+        // --- FPS Control ---
+        next_frame_time += frame_duration;
+        std::this_thread::sleep_until(next_frame_time);
 
         // Status Update
         if (frame_count % 300 == 0) {
-            auto current_time = std::chrono::high_resolution_clock::now();
-            std::chrono::duration<double> elapsed = current_time - start_time;
-            double actual_fps = frame_count / elapsed.count();
-            std::cout << "\rSent: " << frame_count << " | Avg FPS: " << std::fixed << std::setprecision(1) << actual_fps << std::flush;
+             // Calculate actual FPS based on wall clock since start
+             auto current_time = std::chrono::high_resolution_clock::now();
+             std::chrono::duration<double> elapsed = current_time - start_time;
+             double actual_fps = frame_count / elapsed.count();
+             std::cout << "\rSent: " << frame_count << " | Avg FPS: " << std::fixed << std::setprecision(1) << actual_fps << std::flush;
         }
     }
 
